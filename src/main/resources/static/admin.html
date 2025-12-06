@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin - CargaHub</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        .cursor-crosshair { cursor: crosshair !important; }
+        .cursor-cell { cursor: cell !important; } 
+        #temp-rect {
+            position: absolute; border: 2px dashed #3b82f6; background: rgba(59, 130, 246, 0.2); display: none; pointer-events: none;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 font-sans h-screen flex flex-col text-slate-100 overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-slate-950 px-4 py-3 border-b border-slate-800 flex justify-between items-center z-30">
+        <div class="flex items-center gap-3">
+            <div class="bg-blue-600 w-8 h-8 rounded flex items-center justify-center"><i class="fas fa-shield-alt text-white"></i></div>
+            <h1 class="font-bold text-lg hidden sm:block">Panel de Negocio</h1>
+        </div>
+        
+        <div class="flex bg-slate-800 rounded p-1 gap-1">
+            <button onclick="setTool('none')" id="tool-none" class="px-3 py-1.5 rounded bg-blue-600 text-white text-xs font-bold transition">
+                <i class="fas fa-mouse-pointer"></i>
+            </button>
+            <button onclick="setTool('station')" id="tool-station" class="px-3 py-1.5 rounded hover:bg-slate-700 text-gray-300 text-xs font-bold transition">
+                <i class="fas fa-map-marker-alt text-red-400"></i>
+            </button>
+            <button onclick="setTool('zone')" id="tool-zone" class="px-3 py-1.5 rounded hover:bg-slate-700 text-gray-300 text-xs font-bold transition">
+                <i class="fas fa-vector-square text-green-400"></i>
+            </button>
+        </div>
+
+        <button onclick="openHistory()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 rounded text-xs font-bold transition flex items-center gap-2">
+            <i class="fas fa-receipt text-yellow-400"></i> Gestión
+        </button>
+    </header>
+
+    <div class="flex flex-grow relative overflow-hidden">
+        
+        <!-- Sidebar Flotante (Estadísticas Financieras) -->
+        <aside class="absolute top-4 left-4 w-64 bg-slate-900/90 backdrop-blur border border-slate-700 rounded-xl p-4 shadow-2xl z-20 hidden md:block">
+            <h3 class="text-xs font-bold text-slate-500 uppercase mb-3 tracking-wider">KPIs del Negocio</h3>
+            
+            <div class="mb-4 text-center p-4 bg-gradient-to-br from-green-900 to-slate-800 rounded-xl border border-green-700/50">
+                <p class="text-[10px] text-green-300 uppercase font-bold mb-1">Ganancias Totales</p>
+                <p id="stat-ganancias" class="text-3xl font-black text-white tracking-tight">S/ 0.00</p>
+                <p class="text-[10px] text-green-400/60 mt-1">Acumulado histórico</p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 mb-4">
+                <div class="bg-slate-800 p-3 rounded-lg border border-slate-700 text-center">
+                    <p class="text-[10px] text-slate-400">STOCK ACTIVO</p>
+                    <p id="stat-batteries" class="text-xl font-bold text-white mt-1">-</p>
+                </div>
+                <div class="bg-slate-800 p-3 rounded-lg border border-slate-700 text-center">
+                    <p class="text-[10px] text-slate-400">ALQUILERES</p>
+                    <p id="stat-transacciones" class="text-xl font-bold text-blue-400 mt-1">-</p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- MAPA EDITOR -->
+        <main class="w-full h-full bg-slate-200 relative cursor-default touch-none" id="map-area">
+            <div id="custom-map" class="w-full h-full relative" 
+                 style="background-image: radial-gradient(#94a3b8 1px, transparent 1px); background-size: 20px 20px;"
+                 onmousedown="handleMouseDown(event)"
+                 onmousemove="handleMouseMove(event)"
+                 onmouseup="handleMouseUp(event)">
+                <div id="zones-layer" class="absolute inset-0 z-0"></div>
+                <div id="pins-layer" class="absolute inset-0 z-10"></div>
+                <div id="temp-rect"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- MODAL HISTORIAL -->
+    <div id="modal-history" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-2xl h-[80vh] flex flex-col">
+            <div class="p-6 border-b border-slate-800 flex justify-between items-center">
+                <h3 class="font-bold text-xl text-white">Gestión de Transacciones</h3>
+                <div class="flex gap-2">
+                    <!-- BOTÓN DESCARGA EXCEL -->
+                    <button onclick="downloadExcel()" class="bg-green-700 hover:bg-green-600 text-white px-3 py-1 rounded text-xs font-bold flex items-center gap-2">
+                        <i class="fas fa-file-excel"></i> Exportar
+                    </button>
+                    <button onclick="closeHistory()" class="text-slate-400 hover:text-white"><i class="fas fa-times fa-lg"></i></button>
+                </div>
+            </div>
+            <div class="flex-grow overflow-y-auto p-6">
+                <table class="w-full text-left text-sm text-slate-400">
+                    <thead class="text-xs uppercase bg-slate-800 text-slate-200">
+                        <tr>
+                            <th class="p-3 rounded-l-lg">Usuario</th>
+                            <th class="p-3">Estación Salida</th>
+                            <th class="p-3">Estación Retorno</th>
+                            <th class="p-3">Fecha</th>
+                            <th class="p-3">Estado</th>
+                            <th class="p-3 rounded-r-lg text-right">Monto</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-table-body" class="divide-y divide-slate-800">
+                        <!-- JS llenará esto -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modales para crear Estacion/Zona -->
+    <div id="modal-station" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl p-6 w-full max-w-xs text-slate-900">
+            <form onsubmit="saveStation(event)" class="space-y-4">
+                <input type="hidden" id="st-x"><input type="hidden" id="st-y">
+                <div><label class="text-xs font-bold uppercase text-slate-500">Nombre</label><input name="nombre" required class="w-full bg-slate-100 p-3 rounded-lg text-sm font-bold"></div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div><label class="text-xs font-bold uppercase text-slate-500">Capacidad</label><input name="capacidad" type="number" value="8" class="w-full bg-slate-100 p-3 rounded-lg text-sm font-bold text-center"></div>
+                    <div><label class="text-xs font-bold uppercase text-slate-500">Stock</label><input name="stock" type="number" value="4" class="w-full bg-slate-100 p-3 rounded-lg text-sm font-bold text-center"></div>
+                </div>
+                <div class="flex gap-3 pt-2"><button type="button" onclick="closeModals()" class="flex-1 py-3 text-sm text-slate-500">Cancelar</button><button type="submit" class="flex-1 bg-blue-600 text-white py-3 rounded-xl text-sm font-bold">Crear</button></div>
+            </form>
+        </div>
+    </div>
+    
+    <div id="modal-zone" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl p-6 w-full max-w-xs text-slate-900">
+            <form onsubmit="saveZone(event)" class="space-y-4">
+                <input type="hidden" id="zn-x"><input type="hidden" id="zn-y"><input type="hidden" id="zn-w"><input type="hidden" id="zn-h">
+                <div><label class="text-xs font-bold uppercase text-slate-500">Nombre</label><input name="nombre" required class="w-full bg-slate-100 p-3 rounded-lg text-sm font-bold"></div>
+                <div><label class="text-xs font-bold uppercase text-slate-500 mb-2 block">Color</label>
+                     <div class="flex gap-2">
+                        <label><input type="radio" name="color" value="#bfdbfe" checked class="accent-blue-500"> Azul</label>
+                        <label><input type="radio" name="color" value="#bbf7d0" class="accent-green-500"> Verde</label>
+                     </div>
+                </div>
+                <div class="flex gap-3 pt-2"><button type="button" onclick="closeModals()" class="flex-1 py-3 text-sm text-slate-500">Cancelar</button><button type="submit" class="flex-1 bg-green-600 text-white py-3 rounded-xl text-sm font-bold">Guardar</button></div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let currentTool = 'none';
+        let isDragging = false;
+        let startX, startY;
+        
+        window.onload = loadDashboard;
+
+        function setTool(tool) {
+            currentTool = tool;
+            ['tool-none', 'tool-station', 'tool-zone'].forEach(id => {
+                document.getElementById(id).classList.remove('bg-blue-600', 'text-white');
+                document.getElementById(id).classList.add('text-gray-300', 'hover:bg-slate-700');
+            });
+            const activeBtn = document.getElementById(`tool-${tool}`);
+            activeBtn.classList.remove('text-gray-300', 'hover:bg-slate-700');
+            activeBtn.classList.add('bg-blue-600', 'text-white');
+            
+            const map = document.getElementById('custom-map');
+            if(tool === 'station') map.className = "w-full h-full relative cursor-crosshair";
+            else if (tool === 'zone') map.className = "w-full h-full relative cursor-cell";
+            else map.className = "w-full h-full relative cursor-default";
+        }
+
+        // --- MAP LOGIC ---
+        function handleMouseDown(e) {
+            if(currentTool !== 'zone') return;
+            isDragging = true;
+            const rect = e.currentTarget.getBoundingClientRect();
+            startX = ((e.clientX - rect.left) / rect.width) * 100;
+            startY = ((e.clientY - rect.top) / rect.height) * 100;
+            const temp = document.getElementById('temp-rect');
+            temp.style.left = startX + '%'; temp.style.top = startY + '%';
+            temp.style.width = '0%'; temp.style.height = '0%';
+            temp.style.display = 'block';
+        }
+
+        function handleMouseMove(e) {
+            if(!isDragging) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const currentX = ((e.clientX - rect.left) / rect.width) * 100;
+            const currentY = ((e.clientY - rect.top) / rect.height) * 100;
+            const width = currentX - startX;
+            const height = currentY - startY;
+            const temp = document.getElementById('temp-rect');
+            temp.style.width = Math.abs(width) + '%';
+            temp.style.height = Math.abs(height) + '%';
+            temp.style.left = (width < 0 ? currentX : startX) + '%';
+            temp.style.top = (height < 0 ? currentY : startY) + '%';
+        }
+
+        function handleMouseUp(e) {
+            if(currentTool === 'station') {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const x = ((e.clientX - rect.left) / rect.width) * 100;
+                const y = ((e.clientY - rect.top) / rect.height) * 100;
+                openStationModal(x, y);
+            } else if (currentTool === 'zone' && isDragging) {
+                isDragging = false;
+                const temp = document.getElementById('temp-rect');
+                const w = parseFloat(temp.style.width);
+                const h = parseFloat(temp.style.height);
+                const x = parseFloat(temp.style.left);
+                const y = parseFloat(temp.style.top);
+                temp.style.display = 'none';
+                if(w > 1 && h > 1) openZoneModal(x, y, w, h);
+            }
+        }
+
+        // Modales
+        function openStationModal(x, y) {
+            document.getElementById('st-x').value = x;
+            document.getElementById('st-y').value = y;
+            document.getElementById('modal-station').classList.remove('hidden');
+        }
+        function openZoneModal(x, y, w, h) {
+            document.getElementById('zn-x').value = x;
+            document.getElementById('zn-y').value = y;
+            document.getElementById('zn-w').value = w;
+            document.getElementById('zn-h').value = h;
+            document.getElementById('modal-zone').classList.remove('hidden');
+        }
+        function closeModals() {
+            document.getElementById('modal-station').classList.add('hidden');
+            document.getElementById('modal-zone').classList.add('hidden');
+        }
+
+        // Historial y Excel
+        async function openHistory() {
+            document.getElementById('modal-history').classList.remove('hidden');
+            const res = await fetch('/api/estaciones/admin/historial');
+            const data = await res.json();
+            const tbody = document.getElementById('history-table-body');
+            tbody.innerHTML = '';
+            
+            data.forEach(item => {
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-slate-800/50 transition';
+                row.innerHTML = `
+                    <td class="p-3 font-bold text-white">${item.usuario}</td>
+                    <td class="p-3">${item.origen}</td>
+                    <td class="p-3">${item.destino}</td>
+                    <td class="p-3 text-xs">${item.fecha}</td>
+                    <td class="p-3"><span class="px-2 py-1 rounded text-[10px] font-bold ${item.estado === 'En curso' ? 'bg-yellow-900 text-yellow-500' : 'bg-green-900 text-green-500'}">${item.estado}</span></td>
+                    <td class="p-3 text-right font-mono text-green-400">${item.monto}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+        
+        function downloadExcel() {
+            // Activa la descarga directa al endpoint
+            window.location.href = '/api/estaciones/admin/exportar-excel';
+        }
+
+        function closeHistory() {
+            document.getElementById('modal-history').classList.add('hidden');
+        }
+
+        // Saves
+        async function saveStation(e) {
+            e.preventDefault();
+            const form = e.target;
+            const data = {
+                nombre: form.nombre.value,
+                capacidadTotal: parseInt(form.capacidad.value),
+                bateriasDisponibles: parseInt(form.stock.value),
+                coordX: parseFloat(form.querySelector('#st-x').value),
+                coordY: parseFloat(form.querySelector('#st-y').value),
+                pabellon: "General", piso: 1, activa: true
+            };
+            await fetch('/api/estaciones/admin/crear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+            closeModals(); loadDashboard();
+        }
+
+        async function saveZone(e) {
+            e.preventDefault();
+            const form = e.target;
+            const data = {
+                nombre: form.nombre.value,
+                color: form.color.value,
+                x: parseFloat(form.querySelector('#zn-x').value),
+                y: parseFloat(form.querySelector('#zn-y').value),
+                width: parseFloat(form.querySelector('#zn-w').value),
+                height: parseFloat(form.querySelector('#zn-h').value),
+                pabellon: "General", piso: 1
+            };
+            await fetch('/api/estaciones/admin/zona/crear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+            closeModals(); loadDashboard();
+        }
+
+        async function loadDashboard() {
+            // Stats
+            const stats = await (await fetch('/api/estaciones/admin/stats')).json();
+            document.getElementById('stat-ganancias').innerText = stats.ganancias;
+            document.getElementById('stat-batteries').innerText = stats.totalBateriasSistema;
+            document.getElementById('stat-transacciones').innerText = stats.transacciones;
+
+            // Map Data
+            const stations = await (await fetch('/api/estaciones')).json();
+            const zones = await (await fetch('/api/estaciones/zonas')).json();
+
+            // Render Zones
+            const zLayer = document.getElementById('zones-layer');
+            zLayer.innerHTML = '';
+            zones.forEach(zn => {
+                const div = document.createElement('div');
+                div.className = 'absolute border-2 border-black/10 flex items-center justify-center text-center font-bold text-[10px] text-slate-700 uppercase opacity-70';
+                div.style.left = zn.x + '%'; div.style.top = zn.y + '%';
+                div.style.width = zn.width + '%'; div.style.height = zn.height + '%';
+                div.style.backgroundColor = zn.color;
+                div.innerText = zn.nombre;
+                zLayer.appendChild(div);
+            });
+
+            // Render Stations
+            const pLayer = document.getElementById('pins-layer');
+            pLayer.innerHTML = '';
+            stations.forEach(st => {
+                const pin = document.createElement('div');
+                pin.className = 'absolute w-6 h-6 bg-red-500 rounded-full border-2 border-white shadow-lg flex items-center justify-center text-white text-[10px] font-bold z-20 hover:scale-125 transition cursor-pointer';
+                pin.style.left = st.coordX + '%'; pin.style.top = st.coordY + '%';
+                pin.style.transform = 'translate(-50%, -50%)';
+                pin.innerText = st.bateriasDisponibles;
+                pLayer.appendChild(pin);
+            });
+        }
+    </script>
+</body>
+</html>

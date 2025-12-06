@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CargaHub</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body class="bg-slate-100 font-sans h-screen flex flex-col overflow-hidden">
+    
+    <!-- Navbar -->
+    <nav class="absolute top-0 left-0 right-0 z-40 p-4 pointer-events-none">
+        <div class="bg-white/90 backdrop-blur shadow-lg rounded-full px-4 py-2 flex justify-between items-center pointer-events-auto">
+            <div class="flex items-center gap-2 text-red-600">
+                <i class="fas fa-bolt text-xl"></i>
+                <span class="font-bold tracking-tight">CargaHub</span>
+            </div>
+            <div class="flex items-center gap-3">
+                <div id="status-indicator" class="hidden bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-[10px] font-bold border border-green-200">
+                    <i class="fas fa-battery-half mr-1"></i> EN USO
+                </div>
+                <span id="user-display" class="text-xs font-bold text-slate-500 truncate max-w-[80px]">...</span>
+                <form action="/perform_logout" method="post">
+                    <button class="w-8 h-8 bg-slate-100 rounded-full text-slate-600 hover:bg-slate-200 flex items-center justify-center transition">
+                        <i class="fas fa-power-off text-xs"></i>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Mapa -->
+    <div class="flex-grow relative w-full h-full bg-slate-200 overflow-hidden touch-none">
+        <div id="map-container" class="w-full h-full relative" 
+             style="background-image: radial-gradient(#cbd5e1 1px, transparent 1px); background-size: 20px 20px;">
+            <div id="zones-layer" class="absolute inset-0 z-0 opacity-60"></div>
+            <div id="pins-layer" class="absolute inset-0 z-10"></div>
+        </div>
+        
+        <a href="/admin.html" id="btn-admin" class="hidden absolute top-20 right-4 bg-slate-800 text-white w-10 h-10 rounded-full shadow-xl flex items-center justify-center z-40">
+            <i class="fas fa-shield-alt"></i>
+        </a>
+    </div>
+
+    <!-- Panel de Acción (Bottom Sheet) -->
+    <div id="details-panel" class="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-[0_-5px_20px_rgba(0,0,0,0.1)] z-50 transform translate-y-full transition-transform duration-300 ease-in-out p-6 pb-8">
+        <div class="w-12 h-1 bg-slate-300 rounded-full mx-auto mb-4" onclick="closePanel()"></div>
+        
+        <div class="flex justify-between items-start mb-4">
+            <div>
+                <h2 id="st-name" class="text-2xl font-bold text-slate-800">Estación</h2>
+                <p id="st-status" class="text-sm text-slate-500 font-medium mt-1">...</p>
+            </div>
+            <div id="st-icon-container" class="w-12 h-12 rounded-full flex items-center justify-center bg-gray-100">
+                <i class="fas fa-charging-station text-xl text-gray-400"></i>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-6">
+            <!-- Box 1: Disponibles -->
+            <div class="bg-green-50 p-3 rounded-xl border border-green-100 text-center">
+                <p class="text-[10px] text-green-600 uppercase font-black tracking-wider">Disponibles</p>
+                <p id="st-batteries" class="text-2xl font-black text-slate-800">-</p>
+            </div>
+            <!-- Box 2: Capacidad Total (Infraestructura) -->
+            <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
+                <p class="text-[10px] text-slate-400 uppercase font-black tracking-wider">Capacidad Total</p>
+                <p id="st-capacity" class="text-2xl font-black text-slate-800">-</p>
+            </div>
+        </div>
+
+        <button id="action-btn" onclick="ejecutarAccion()" class="w-full bg-slate-900 text-white font-bold py-4 rounded-xl active:scale-95 transition shadow-xl text-lg flex items-center justify-center gap-2">
+            <span>Cargando...</span>
+        </button>
+    </div>
+
+    <script>
+        let currentStationId = null;
+        let userHasBattery = false;
+
+        window.onload = async () => {
+            const auth = await (await fetch('/api/login-status')).json();
+            if(!auth.loggedIn) { window.location.href = '/login.html'; return; }
+            
+            document.getElementById('user-display').innerText = auth.username;
+            if(auth.role === 'ADMIN') document.getElementById('btn-admin').classList.remove('hidden');
+            
+            await checkUserStatus();
+            loadMapData();
+        };
+
+        async function checkUserStatus() {
+            const res = await (await fetch('/api/estaciones/mi-estado')).json();
+            userHasBattery = res.tieneBateria;
+            const indicator = document.getElementById('status-indicator');
+            if(userHasBattery) indicator.classList.remove('hidden');
+            else indicator.classList.add('hidden');
+        }
+
+        async function loadMapData() {
+            const zones = await (await fetch('/api/estaciones/zonas')).json();
+            const zLayer = document.getElementById('zones-layer');
+            zLayer.innerHTML = '';
+            zones.forEach(zn => {
+                const div = document.createElement('div');
+                div.className = 'absolute flex items-center justify-center text-[10px] font-black text-slate-500/50 uppercase tracking-widest pointer-events-none border border-slate-400/20';
+                div.style.left = zn.x + '%'; div.style.top = zn.y + '%';
+                div.style.width = zn.width + '%'; div.style.height = zn.height + '%';
+                div.style.backgroundColor = zn.color;
+                div.innerText = zn.nombre;
+                zLayer.appendChild(div);
+            });
+
+            const stations = await (await fetch('/api/estaciones')).json();
+            const pLayer = document.getElementById('pins-layer');
+            pLayer.innerHTML = '';
+            stations.forEach(st => {
+                const pin = document.createElement('div');
+                const hasStock = st.bateriasDisponibles > 0;
+                pin.className = `absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center cursor-pointer transition active:scale-90 group z-20`;
+                pin.style.left = st.coordX + '%'; pin.style.top = st.coordY + '%';
+                pin.innerHTML = `
+                    <div class="relative">
+                        <div class="w-10 h-10 ${hasStock ? 'bg-green-500 shadow-green-500/40' : 'bg-red-500 shadow-red-500/40'} rounded-full shadow-lg border-2 border-white flex items-center justify-center text-white font-bold text-sm">
+                            ${st.bateriasDisponibles}
+                        </div>
+                    </div>
+                `;
+                pin.onclick = () => openPanel(st);
+                pLayer.appendChild(pin);
+            });
+        }
+
+        function openPanel(st) {
+            currentStationId = st.id;
+            const panel = document.getElementById('details-panel');
+            const btn = document.getElementById('action-btn');
+            
+            document.getElementById('st-name').innerText = st.nombre;
+            document.getElementById('st-batteries').innerText = st.bateriasDisponibles;
+            // CAMBIO: Mostramos capacidad total en lugar de huecos
+            document.getElementById('st-capacity').innerText = st.capacidadTotal;
+
+            const huecos = st.capacidadTotal - st.bateriasDisponibles;
+
+            if (userHasBattery) {
+                if (huecos > 0) {
+                    btn.className = "w-full bg-blue-600 text-white font-bold py-4 rounded-xl active:scale-95 transition shadow-xl text-lg";
+                    btn.innerHTML = '<i class="fas fa-inbox"></i> DEVOLVER AQUÍ';
+                    btn.onclick = () => ejecutarAccion('devolver');
+                } else {
+                    btn.className = "w-full bg-gray-400 text-white font-bold py-4 rounded-xl cursor-not-allowed";
+                    btn.innerHTML = '<i class="fas fa-ban"></i> LLENO';
+                    btn.onclick = null;
+                }
+            } else {
+                if (st.bateriasDisponibles > 0) {
+                    btn.className = "w-full bg-slate-900 text-white font-bold py-4 rounded-xl active:scale-95 transition shadow-xl text-lg";
+                    btn.innerHTML = '<i class="fas fa-qrcode"></i> ALQUILAR (S/ 3.50)';
+                    btn.onclick = () => ejecutarAccion('alquilar');
+                } else {
+                    btn.className = "w-full bg-gray-400 text-white font-bold py-4 rounded-xl cursor-not-allowed";
+                    btn.innerHTML = '<i class="fas fa-ban"></i> SIN STOCK';
+                    btn.onclick = null;
+                }
+            }
+            panel.classList.remove('translate-y-full');
+        }
+
+        async function ejecutarAccion(tipo) {
+            const btn = document.getElementById('action-btn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Procesando...';
+            try {
+                const res = await fetch(`/api/estaciones/${currentStationId}/accion?tipo=${tipo}`, { method: 'POST' });
+                const data = await res.json();
+                if(res.ok) {
+                    alert(data.mensaje);
+                    closePanel();
+                    await checkUserStatus();
+                    loadMapData();
+                } else {
+                    alert("Error: " + data.error);
+                    btn.innerHTML = originalText;
+                }
+            } catch (err) { alert("Error de conexión"); btn.innerHTML = originalText; }
+        }
+
+        function closePanel() {
+            document.getElementById('details-panel').classList.add('translate-y-full');
+        }
+    </script>
+</body>
+</html>

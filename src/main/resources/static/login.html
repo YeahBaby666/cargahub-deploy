@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acceso - CargaHub</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body class="bg-slate-900 font-sans h-screen flex items-center justify-center p-4">
+
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        
+        <!-- Pestañas Superiores -->
+        <div class="flex border-b">
+            <button onclick="switchTab('login')" id="tab-login" class="flex-1 py-4 text-sm font-bold text-red-600 border-b-2 border-red-600 bg-red-50">LOGIN</button>
+            <button onclick="switchTab('register')" id="tab-register" class="flex-1 py-4 text-sm font-bold text-gray-400 hover:text-gray-600">REGISTRO</button>
+        </div>
+
+        <div class="p-8">
+            <div class="text-center mb-6">
+                <h1 class="text-3xl font-bold text-slate-800">CargaHub UTP</h1>
+                <p class="text-gray-500 text-xs mt-1">Gestión de Energía</p>
+            </div>
+            
+            <!-- FORMULARIO LOGIN -->
+            <form id="form-login" action="/perform_login" method="post" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Usuario</label>
+                    <!-- "name=username" es obligatorio para Spring Security -->
+                    <input type="text" name="username" required class="w-full border rounded-lg p-3 bg-gray-50 focus:ring-2 focus:ring-red-500 outline-none" placeholder="admin o aldo">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Contraseña</label>
+                    <!-- "name=password" es obligatorio para Spring Security -->
+                    <input type="password" name="password" required class="w-full border rounded-lg p-3 bg-gray-50 focus:ring-2 focus:ring-red-500 outline-none" placeholder="admin123 o 1234">
+                </div>
+                
+                <!-- Mensaje de Error (se muestra si la URL tiene ?error=true) -->
+                <div id="login-error" class="text-red-500 text-xs text-center hidden font-bold bg-red-100 p-2 rounded">
+                    <i class="fas fa-exclamation-circle mr-1"></i> Credenciales incorrectas
+                </div>
+                
+                <button type="submit" class="w-full bg-red-600 text-white font-bold py-3 rounded-lg hover:bg-red-700 transition transform active:scale-95 shadow-lg">
+                    ENTRAR
+                </button>
+            </form>
+
+            <!-- FORMULARIO REGISTRO -->
+            <form id="form-register" onsubmit="handleRegister(event)" class="space-y-4 hidden">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Nuevo Usuario</label>
+                    <input type="text" id="reg-user" required class="w-full border rounded-lg p-3 bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ej: u2021100">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Nueva Contraseña</label>
+                    <input type="password" id="reg-pass" required class="w-full border rounded-lg p-3 bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="******">
+                </div>
+
+                <div id="reg-msg" class="text-xs text-center hidden p-2 rounded font-bold"></div>
+
+                <button type="submit" class="w-full bg-slate-800 text-white font-bold py-3 rounded-lg hover:bg-slate-900 transition transform active:scale-95 shadow-lg">
+                    CREAR CUENTA
+                </button>
+            </form>
+
+            <div class="mt-6 text-center text-xs text-gray-400 border-t pt-4">
+                <p>Admin: <b>admin / admin123</b></p>
+                <p>Estudiante: <b>aldo / 1234</b></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Mostrar error si viene en la URL
+        if (window.location.search.includes('error')) {
+            document.getElementById('login-error').classList.remove('hidden');
+        }
+
+        function switchTab(tab) {
+            const fLogin = document.getElementById('form-login');
+            const fReg = document.getElementById('form-register');
+            const tLogin = document.getElementById('tab-login');
+            const tReg = document.getElementById('tab-register');
+
+            if(tab === 'login') {
+                fLogin.classList.remove('hidden');
+                fReg.classList.add('hidden');
+                tLogin.className = "flex-1 py-4 text-sm font-bold text-red-600 border-b-2 border-red-600 bg-red-50 transition";
+                tReg.className = "flex-1 py-4 text-sm font-bold text-gray-400 hover:text-gray-600 transition";
+            } else {
+                fLogin.classList.add('hidden');
+                fReg.classList.remove('hidden');
+                tLogin.className = "flex-1 py-4 text-sm font-bold text-gray-400 hover:text-gray-600 transition";
+                tReg.className = "flex-1 py-4 text-sm font-bold text-blue-600 border-b-2 border-blue-600 bg-blue-50 transition";
+            }
+        }
+
+        async function handleRegister(e) {
+            e.preventDefault();
+            const username = document.getElementById('reg-user').value;
+            const password = document.getElementById('reg-pass').value;
+            const msg = document.getElementById('reg-msg');
+
+            try {
+                const res = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username, password})
+                });
+                
+                if(res.ok) {
+                    msg.innerText = "¡Usuario creado! Inicia sesión.";
+                    msg.className = "text-xs text-center p-2 rounded font-bold bg-green-100 text-green-700";
+                    msg.classList.remove('hidden');
+                    e.target.reset();
+                    setTimeout(() => switchTab('login'), 1500);
+                } else {
+                    const data = await res.json();
+                    throw new Error(data.error || "Error al crear");
+                }
+            } catch (err) {
+                msg.innerText = err.message;
+                msg.className = "text-xs text-center p-2 rounded font-bold bg-red-100 text-red-700";
+                msg.classList.remove('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
